@@ -1,24 +1,47 @@
-import pandas as pd
-import matplotlib.pyplot as plt
+from funcs_er import *
+import os
+from scipy.stats import linregress
 import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import matplotlib as mpl
+#import seaborn as sns
+# sns.set()
 
 '''
 
 '''
+# cd c:\Users\hpham\Documents\P34_East_River\es_scripts\scripts\
 
-#
+# Specify input files
 # ifile = r'../input/stream.csv'
 ifile = r'../input/hru_params2.csv'
 df_org = pd.read_csv(ifile)
-print(f'Reading file {ifile} \n')
+print(f'\nReading file {ifile} \n')
 df = df_org[df_org['ISEG'] != 0]
 
-# MODFLOW paramete
+# Speficy ouput files
+ofile = '../output/sfr/east_river.sfr'  # sfr MODFLOW file
+
+# Create an folder to save figures
+odir = '../output/regres_figs/'
+gen_outdir(odir)
+
+
+# MODFLOW parameters
 nrows, ncols = 419, 328
 
+# Plot parameters
+sz = 30
+pad_val = 2  # how far from a xtick_label to ax
+# Get rid of max 20 plot warning
+mpl.rcParams['figure.max_open_warning'] = 1000
+plt.grid(color='#e6e6e6', linestyle='-', linewidth=0.5, axis='both')
 
 # drop duplicate cells to get SEG and connected SEG
-col_tmp = ['ISEG', 'OUTSEG', 'IUPSEG', 'MAXREACH']
+col_tmp = ['ISEG', 'OUTSEG', 'IUPSEG', 'MAXREACH', 'DEM_ADJ']
+
+# Get unique ???
 df_tmp = df[col_tmp]
 dfSEG = df_tmp.drop_duplicates(subset=['ISEG', 'OUTSEG', 'IUPSEG'])
 dfSEG = dfSEG.reset_index()
@@ -38,7 +61,6 @@ ISTCB1 = 40  # a flag for writing stream-aquifer leakage values
 ISTCB2 = -3
 
 # Write to file
-ofile = '../output/sfr/east_river.sfr'
 fid = open(ofile, 'w')
 # Write Date Set 1c
 fid.write("%d\t%d\t%d\t%d\t%d\t%f\t%d\t%d\t\n" % (NSTRM, NSS, NSFRPAR,
@@ -46,19 +68,86 @@ fid.write("%d\t%d\t%d\t%d\t%d\t%f\t%d\t%d\t\n" % (NSTRM, NSS, NSFRPAR,
 
 
 # Prepare Data Set 2 (SEG and REACH)
-cols = ['KRCH', 'IRCH', 'JRCH', 'ISEG', 'IREACH', 'RCHLEN']
+cols = ['KRCH', 'IRCH', 'JRCH', 'ISEG', 'IREACH', 'RCHLEN', 'DEM_ADJ']
 df_seg_rch_loc = df[cols]
 #df2 = pd.DataFrame(columns=cols)
+
 for i in range(NSEG):
+    # for i in range(313, 314, 1):
+    fig, ax = plt.subplots(1, 2)
+    fig.set_size_inches(10, 4)
+
     segi = df_seg_rch_loc[df_seg_rch_loc['ISEG'] == i+1]
-    segi = segi.sort_values(by='IREACH')
+#    print(segi)
+    segi_sorted = segi.sort_values(by='IREACH')  # Back later
+#    print(segi)
+    if segi.shape[0] > 1:
+        check_DEM_ADJ = segi_sorted['DEM_ADJ'].diff()
+        #print(f'Dimension of check_DEM_ADJ={check_DEM_ADJ.shape[0]}')
+
+        max_change_DEM_ADJ = max(check_DEM_ADJ[1:])
+
+        if max_change_DEM_ADJ >= 0:
+            print(f'\nWARNING: i={i}, max_change_DEM_ADJ={max_change_DEM_ADJ}')
+            #
+
+        # PLOT
+        # Linear regression
+        y = segi_sorted['DEM_ADJ'].copy()
+        npoints = len(y)
+        x = range(1, npoints+1, 1)
+        #print(f'{y} \n')
+        #ax[0].plot(x, y, 'o', )
+
+        ax[0].scatter(x, y, s=sz, facecolors='#a6dba0',
+                      edgecolors='#008837', linewidth=0.25, alpha=1, zorder=0)
+        ax[0].set_title(f'ISEG={i}')
+        ax[0].tick_params(axis="x", direction="in", pad=pad_val)
+        ax[0].tick_params(axis="y", direction="in", pad=pad_val)
+
+        # Fit and plot
+        if npoints >= 3:
+            m, b = fit_line2(x, y)
+            # could be just 2 if you are only drawing a straight line...
+            N = 100
+            points = np.linspace(min(x), max(x), N)
+            ax[0].plot(points, m*points + b, linewidth=0.5,
+                       alpha=0.5, zorder=1)  # Line plot
+
+            ax[0].set_xlabel('IREACH ID')
+            ax[0].set_ylabel('ISEG Elevation (m)')
+
+            # Subplot2: Adjust elevations and plot
+            '''
+            y_new = m*x + b
+            ax[0].scatter(x, y_new, s=sz, facecolors='#253494',
+                          edgecolors='#2c7fb8', linewidth=0.1, alpha=1, zorder=2)
+
+            ax[0].set_xlabel('IREACH ID')
+            ax[0].set_ylabel('ISEG Elevation (m)')
+            '''
+        else:
+            print(f'\nWARNING: Skip regression analysis for REACH ID = {i+1} because npoints <= 3')
+
+#            plt.show()
+
+        # Save figures
+        ofile = odir + 'SEG_' + str(i+1).rjust(2, '0') + '.png'
+        fig.savefig(ofile, dpi=100, transparent=False, bbox_inches='tight')
+
+    else:
+        print(f'\nATTENTION: Found only one SEGMENT for REACH ID {i+1}.')
+
+    # Make sure flow run downstream
+    # check_IREACH()
+
 #    df2.loc[i, 'KRCH'] = df['KRCH'].iloc[i]
 #    df2.loc[i, 'IRCH'] = df['IRCH'].iloc[i]
 #    df2.loc[i, 'JRCH'] = df['JRCH'].iloc[i]
 #    df2.loc[i, 'ISEG'] = df['ISEG'].iloc[i]
 #    df2.loc[i, 'IREACH'] = df['IREACH'].iloc[i]
 #    df2.loc[i, 'RCHLEN'] = df['RCHLEN'].iloc[i]
-    fid.write(segi.to_string(index=False, header=False))
+    fid.write(segi_sorted.to_string(index=False, header=False))
     fid.write('\n')
 
 #df2.to_csv(fid, index=False, sep="\t", header=False)
