@@ -9,9 +9,15 @@ import matplotlib as mpl
 # sns.set()
 
 '''
+This file:
+- Use REACHINPUT: The method for invoking the options to specify streambed properties
+                  by reach or to simulate unsaturated flow beneath streams (REACHINPUT)
 
 '''
 # cd c:\Users\hpham\Documents\P34_East_River\es_scripts\scripts\
+
+# Choose run options:
+opt_check_flow_downhill = False
 
 # Specify input files
 # ifile = r'../input/stream.csv'
@@ -33,7 +39,7 @@ nrows, ncols = 419, 328
 
 # Plot parameters
 sz = 30
-pad_val = 2  # how far from a xtick_label to ax
+pad_val = 2  # how far from tick_label to ax
 # Get rid of max 20 plot warning
 mpl.rcParams['figure.max_open_warning'] = 1000
 plt.grid(color='#e6e6e6', linestyle='-', linewidth=0.5, axis='both')
@@ -60,84 +66,78 @@ ISTCB1 = 40  # a flag for writing stream-aquifer leakage values
 # on inflows and outflows from each reach
 ISTCB2 = -3
 
+'''
+ISFROPT: An integer value that defines the format of the input data and whether or not unsaturated flow is
+simulated beneath streams. Unsaturated flow is simulated for ISFROPT ≥ 2; unsaturated flow is not simulated for
+ISFROPT = 0 or 1. Optional variables NSTRAIL, ISUZN, and NSFRSETS also must be specified if ISFROPT>1.
+Values of ISFROPT are defined as follows:
+'''
+ISFROPT = 2
+
+NSTRAIL = 10  # An integer value that is the number of trailing wave increments used to represent a trailing wave
+
+# ISUZN An integer value that is the maximum number of vertical cells used to the define the unsaturated
+# zone beneath a stream reach. If ICALC is 1 for all segments then ISUZN should be set to 1.
+ISUZN = 1
+# An integer value that is the maximum number of different sets of trailing waves used to allocate arrays.
+NSFRSETS = 30
+# IRTFLG An integer value that indicates the method of transient streamflow routing.
+IRTFLG = 0
+# NUMTIM An integer value equal to the number of sub time steps used to route streamflow.
+NUMTIM = 1
+# WEIGHT A real number equal to the time weighting factor used to calculate the change in channel storage.
+WEIGHT = 0.7
+# FLWTOL A real number equal to the streamflow tolerance for convergence of the kinematic wave equation
+# used for transient streamflow routing.
+FLWTOL = 0.01
+
+
 # Write to file
 fid = open(ofile, 'w')
+
+#
+fid.write("%s\n" % ('REACHINPUT'))
+
 # Write Date Set 1c
-fid.write("%d\t%d\t%d\t%d\t%d\t%f\t%d\t%d\t\n" % (NSTRM, NSS, NSFRPAR,
-                                                  NPARSEG, CONST, DLEAK, ISTCB1, ISTCB2))
+fid.write("%d\t%d\t%d\t%d\t%d\t%f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%6.3f\t%6.3f\t\n" % (NSTRM, NSS, NSFRPAR,
+                                                                                        NPARSEG, CONST, DLEAK, ISTCB1, ISTCB2, ISFROPT, NSTRAIL, ISUZN, NSFRSETS, IRTFLG, NUMTIM, WEIGHT, FLWTOL))
 
 
 # Prepare Data Set 2 (SEG and REACH)
-cols = ['KRCH', 'IRCH', 'JRCH', 'ISEG', 'IREACH', 'RCHLEN', 'DEM_ADJ']
+# KRCH IRCH JRCH ISEG IREACH RCHLEN {STRTOP} {SLOPE} {STRTHICK} {STRHC1} {THTS}
+# {THTI} {EPS} {UHC}
+cols = ['KRCH', 'IRCH', 'JRCH', 'ISEG', 'IREACH',
+        'RCHLEN', 'DEM_ADJ']
 df_seg_rch_loc = df[cols]
 #df2 = pd.DataFrame(columns=cols)
 
+# {STRTOP} {SLOPE} {STRTHICK} {STRHC1} {THTS} {THTI} {EPS} {UHC}
+df_seg_rch_loc['STRM_SLOPE'] = 0.01  # The stream slope across the reach (>0)
+df_seg_rch_loc['STRTHICK'] = 0.5  # The thickness of the streambed (meters)
+# STRHC1 The hydraulic conductivity of the streambed (m/day)
+df_seg_rch_loc['STRHC1'] = 1
+# THTS The saturated volumetric water content in the unsaturated zone
+df_seg_rch_loc['THTS'] = 0.15
+# THTI The initial volumetric water content.
+df_seg_rch_loc['THTI'] = 0.15
+# EPS A real number equal to the Brooks-Corey exponent
+df_seg_rch_loc['EPS'] = 3.5  # NOT SURE
+# UHC A real number equal to the vertical saturated hydraulic conductivity of the unsaturated zone.
+df_seg_rch_loc['UHC'] = 2.5  # NOT SURE
+
 for i in range(NSEG):
     # for i in range(313, 314, 1):
-    fig, ax = plt.subplots(1, 2)
-    fig.set_size_inches(10, 4)
 
     segi = df_seg_rch_loc[df_seg_rch_loc['ISEG'] == i+1]
 #    print(segi)
     segi_sorted = segi.sort_values(by='IREACH')  # Back later
 #    print(segi)
-    if segi.shape[0] > 1:
-        check_DEM_ADJ = segi_sorted['DEM_ADJ'].diff()
-        #print(f'Dimension of check_DEM_ADJ={check_DEM_ADJ.shape[0]}')
 
-        max_change_DEM_ADJ = max(check_DEM_ADJ[1:])
-
-        if max_change_DEM_ADJ >= 0:
-            print(f'\nWARNING: i={i}, max_change_DEM_ADJ={max_change_DEM_ADJ}')
-            #
-
-        # PLOT
-        # Linear regression
-        y = segi_sorted['DEM_ADJ'].copy()
-        npoints = len(y)
-        x = range(1, npoints+1, 1)
-        #print(f'{y} \n')
-        #ax[0].plot(x, y, 'o', )
-
-        ax[0].scatter(x, y, s=sz, facecolors='#a6dba0',
-                      edgecolors='#008837', linewidth=0.25, alpha=1, zorder=0)
-        ax[0].set_title(f'ISEG={i}')
-        ax[0].tick_params(axis="x", direction="in", pad=pad_val)
-        ax[0].tick_params(axis="y", direction="in", pad=pad_val)
-
-        # Fit and plot
-        if npoints >= 3:
-            m, b = fit_line2(x, y)
-            # could be just 2 if you are only drawing a straight line...
-            N = 100
-            points = np.linspace(min(x), max(x), N)
-            ax[0].plot(points, m*points + b, linewidth=0.5,
-                       alpha=0.5, zorder=1)  # Line plot
-
-            ax[0].set_xlabel('IREACH ID')
-            ax[0].set_ylabel('ISEG Elevation (m)')
-
-            # Subplot2: Adjust elevations and plot
-            '''
-            y_new = m*x + b
-            ax[0].scatter(x, y_new, s=sz, facecolors='#253494',
-                          edgecolors='#2c7fb8', linewidth=0.1, alpha=1, zorder=2)
-
-            ax[0].set_xlabel('IREACH ID')
-            ax[0].set_ylabel('ISEG Elevation (m)')
-            '''
-        else:
-            print(
-                f'\nWARNING: Skip regression analysis for REACH ID = {i+1} because npoints <= 3')
-
-#            plt.show()
-
-        # Save figures
-        ofile = odir + 'SEG_' + str(i+1).rjust(2, '0') + '.png'
-        fig.savefig(ofile, dpi=100, transparent=False, bbox_inches='tight')
-
-    else:
-        print(f'\nATTENTION: Found only one SEGMENT for REACH ID {i+1}.')
+    # Check segi to make sure water flows downhill
+    if opt_check_flow_downhill:
+        fig, ax = plt.subplots(1, 2)
+        fig.set_size_inches(10, 4)
+        check_IREACH(segi_sorted, fig, ax)
 
     # Make sure flow run downstream
     # check_IREACH()
@@ -156,30 +156,34 @@ for i in range(NSEG):
 
 #
 #
-# Prepare Data Set 6
+# Prepare Data Set 5 ==========================================================
 IRDFLG = 0  # printing input data specified for this stress period
 IPTFLG = 0  # printing streamflow-routing results during this stress period
-ICALC = 0  # method used to calculate stream depth in this segment
-# OUTSEG = 999  # the downstream stream segment that receives tributary inflow from the last downstream reach of this segment
-# the upstream segment from which water is diverted (or withdrawn) to supply inflow to this stream segment
+ICALC = 1  # method used to calculate stream depth in this segment
+
+# Prepare Data Set 6 ==========================================================
+# OUTSEG = 999  # the downstream stream segment that receives tributary
+# inflow from the last downstream reach of this segment
+# the upstream segment from which water is diverted (or withdrawn) to
+# supply inflow to this stream segment
 # IUPSEG = 999
-FLOW = 100  # streamflow (L3/T)
+FLOW = 0  # streamflow (L3/T) # Handle by PRMS
 # the volumetric rate of the diffuse overland runoff
 # that enters the stream segment (L3/T)
-RUNOFF = 10
+RUNOFF = 0  # Handle by PRMS
 # the volumetric rate per unit area of water removed by evapotranspiration
 # directly from the stream channel (L3/T)
-ETSW = 1
+ETSW = 0  # Handle by PRMS
 # the volumetric rate per unit area of water added by precipitation
-# directly on the stream channel (L3/T)
-PPTSW = 0.5
+# directly on the stream channel (L/T)
+PPTSW = 0.03
 # -----------------------------------------------------------------------------
 # HCOND1: Hydraulic conductivity of the streambed at the upstream end of this segment (L3/T)
 HCOND1 = 1  # m3/day
 # Thickness of streambed material at the upstream end of this segment (L3/T)
 THICKM1 = 5  # m
 # Elevation of the top of the streambed at the upstream end of this segment (L)
-ELEVUP = 100  # meter
+ELEVUP = 100  # meter # Not in use here because of using the REACHINPUT option
 # WIDTH1: Average width of the stream channel at the upstream end of this segment (L)
 WIDTH1 = 100  # meter
 # DEPTH1: Average depth of water in the channel at the upstream end of this segment
@@ -192,72 +196,34 @@ THICKM2 = 5  # m
 # Elevation of the top of the streambed at the downstream end of this segment (L)
 ELEVDN = 100  # meter
 # WIDTH2: Average width of the stream channel at the downstream end of this segment (L)
-WIDTH2 = 100  # meter
+WIDTH2 = 120  # meter
 # DEPTH2: Average depth of water in the channel at the downstream end of this segment (L)
 DEPTH2 = 100  # meter
 
-
-#
-'''
-col2 = ['NSEG', 'ICALC', 'OUTSEG', 'IUPSEG', 'FLOW', 'RUNOFF', 'ETSW', 'PPTSW']
-df6 = pd.DataFrame(columns=col2)
-for i in range(NSEG):
-    df6.loc[i, 'NSEG'] = dfSEG['ISEG'].iloc[i]
-    df6.loc[i, 'ICALC'] = ICALC
-    df6.loc[i, 'OUTSEG'] = dfSEG['OUTSEG'].iloc[i]
-    df6.loc[i, 'IUPSEG'] = dfSEG['IUPSEG'].iloc[i]
-    df6.loc[i, 'FLOW'] = FLOW
-    df6.loc[i, 'RUNOFF'] = RUNOFF
-    df6.loc[i, 'ETSW'] = ETSW
-    df6.loc[i, 'PPTSW'] = PPTSW
-'''
-#
+# Item 5 Data: ITMP IRDFLG IPTFLG {NP}
 fid.write("%d\t%d\t%d\n" % (NSEG, IRDFLG, IPTFLG))
 
 for i in range(NSEG):
+    # 6a. Data: NSEG ICALC OUTSEG IUPSEG {IPRIOR} {NSTRPTS} FLOW RUNOFF ETSW PPTSW
+            # {ROUGHCH} {ROUGHBK} {CDPTH} {FDPTH} {AWDTH} {BWDTH}
     fid.write("%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\n" % (
         dfSEG['ISEG'].iloc[i], ICALC, dfSEG['OUTSEG'].iloc[i], dfSEG['IUPSEG'].iloc[i], FLOW, RUNOFF, ETSW, PPTSW))
+    fid.write("%6.3f\n" %
+              (WIDTH1))
+    fid.write("%6.3f\n" %
+              (WIDTH2))
+    '''
     fid.write("%f\t%f\t%f\t%f\t%f\n" %
               (HCOND1, THICKM1, ELEVUP, WIDTH1, DEPTH1))
     fid.write("%f\t%f\t%f\t%f\t%f\n" %
               (HCOND2, THICKM2, ELEVDN, WIDTH2, DEPTH2))
+    '''
+fid.write("%s\n" % ('-1	0	0'))
+
 fid.close()
 
 #df6.to_csv(ofile1, index=False)
 print(f'Saved the sfr2 file at {ofile}\n')
-
-
-'''
-# Define variables for Data Set 6
-NSEG = 536
-
-iseg = df['ISEG']
-iseg_rs = iseg.values.reshape(nrows, ncols)
-ireach = df['IREACH']
-ireach_rs = ireach.values.reshape(nrows, ncols)
-rchlen = df['RCHLEN']
-rchlen_rs = rchlen.values.reshape(nrows, ncols)
-
-
-plt.imshow(iseg_rs)
-cols = ['KRCH', 'IRCH', 'JRCH', 'ISEG', 'IREACH', 'RCHLEN']
-df_loc = pd.DataFrame(columns=cols)
-count = 0
-for i in range(nrows):
-    for j in range(ncols):
-        if iseg_rs[i, j] != 0:
-            df_loc.loc[count, 'KRCH'] = 1
-            df_loc.loc[count, 'IRCH'] = i+1
-            df_loc.loc[count, 'JRCH'] = j+1
-            df_loc.loc[count, 'ISEG'] = iseg_rs[i, j]
-            df_loc.loc[count, 'IREACH'] = ireach_rs[i, j]
-            df_loc.loc[count, 'RCHLEN'] = rchlen_rs[i, j]
-            count += 1
-ofile1 = '../output/sfr/df_loc.csv'
-df_loc.to_csv(ofile1, index=False)
-print('Saved the first part of sfr2 at {ofile1} \n')
-# Prepare Data Set 6
-'''
 
 
 # REFERENCES
